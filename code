@@ -1,0 +1,263 @@
+#Install packages and intialise them into R environment
+
+setwd("~/Documents/Bioinformatics Project")
+install.packages('BiocManager')
+install(c('tximport', 'DESeq2', 'biomaRt', 'pheatmap'))
+library(BiocManager)
+library(tximport)
+library(DESeq2)
+library(biomaRt)
+library(pheatmap)
+library(tidyverse)
+
+install.packages("ggplot2")
+install.packages("RColorBrewer")
+BiocManager::install('geneplotter')
+BiocManager::install('vidger')
+
+library(ggplot2)
+library(RColorBrewer)
+library('geneplotter')
+library('vidger')
+
+install.packages(
+  pkgs = "DESeqAnalysis",
+  repos = c(
+    "https://r.acidgenomics.com",
+    BiocManager::repositories()
+  ),
+  dependencies = TRUE
+)
+library('DESeqAnalysis')
+
+
+# Import data into R using tximport
+
+sample_table = read_csv('https://raw.githubusercontent.com/sjcockell/mmb8052/main/practicals/practical_08/data/sample_table.csv')
+files = pull(sample_table, Run)
+files = paste0('counts/', files, '/quant.sf')
+names(files) = pull(sample_table, Run)
+gene_map = read_csv('https://github.com/sjcockell/mmb8052/raw/main/practicals/practical_08/extdata/gene_map.csv')
+txi = tximport(files, 
+               type='salmon',
+               tx2gene=gene_map,
+               ignoreTxVersion=TRUE)
+
+
+# Plot Dispersion graph
+
+dds = DESeqDataSetFromTximport(txi, colData = sample_table, design = ~ Group)
+dds = estimateSizeFactors(dds)
+dds = estimateDispersions(dds)
+dds = nbinomWaldTest(dds)
+counts(dds, normalized=FALSE)/normalizationFactors(dds)
+counts(dds, normalized=TRUE)
+plotDispEsts(dds)
+
+
+# Plot PCA plot and Sample-distance Heatmap
+
+rld = rlog(dds)
+pca_plot <- plotPCA(rld, intgroup='Group')
+p <- ggplot(pcaData,
+            aes(x=PC1, y=PC2, color=Group, shape=Group)) +
+  geom_point(size=3)
+p + scale_color_manual(values=c("purple", "#69b3a2", "black")) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed()
+color_scheme = colorRampPalette(brewer.pal(9, "PuBu"))(100) 
+sample_distance = dist(t(assay(rld)), method='euclidian')
+sample_distance_matrix = as.matrix(sample_distance)
+heatmap_annotation = data.frame(group=colData(dds)[,c('Group')], row.names=rownames(colData(dds)))
+pheatmap(sample_distance_matrix, color = color_scheme,
+         clustering_distance_rows=sample_distance,
+         clustering_distance_cols=sample_distance,
+         cutree_cols = 3,
+         cutree_rows = 3,
+         annotation_col = heatmap_annotation,
+         annotation_colors = list(group=c(Allo24h="purple", Allo2h = "#69b3a2", Naive = "black")))
+
+# Volcano plots
+# PLOT A - ALL024H VS NAIVE 
+results_table = results(dds, contrast= c('Group', 'Allo24h', 'Naive'))
+summary(results_table)
+results_tibble = as_tibble(results_table, rownames='ensembl_gene_id')
+filtered_results = filter(results_tibble, complete.cases(results_tibble))
+
+ensembl108 = useEnsembl(biomart="ensembl", version=108)
+ensembl108 = useDataset("mmusculus_gene_ensembl", mart=ensembl108)
+annotation = getBM(attributes=c('ensembl_gene_id', 'chromosome_name',
+                                'start_position', 'end_position',
+                                'strand', 'gene_biotype', 'external_gene_name',
+                                'description'),
+                   filters = 'ensembl_gene_id',
+                   values = filtered_results$ensembl_gene_id,
+                   mart = ensembl108)
+annot_results = left_join(filtered_results, annotation)
+annot_results = arrange(annot_results, padj)
+
+annot_results = mutate(annot_results, logPval= -log10(padj))
+annot_results$Significance <- 'Neither'
+annot_results$Significance[annot_results$padj < 0.05] <- 'Pval only'
+annot_results$Significance[annot_results$log2FoldChange < -1 & annot_results$padj < 0.05] <- 'Both'
+annot_results$Significance[annot_results$log2FoldChange > 1 & annot_results$padj < 0.05] <- 'Both'
+
+g = ggplot(annot_results, aes(x=log2FoldChange,
+                              y=logPval, col = Significance,
+                              name = external_gene_name)) +
+  geom_vline(xintercept = c(-1, 1), col = '#5A5A5A', alpha = 0.5, linetype = 2) +
+  geom_hline(yintercept =-log10(0.05), col = '#5A5A5A', alpha = 0.5, linetype = 2) +
+  geom_point(size = 1, alpha=0.3) +
+  scale_color_manual(values = c("#E5323B", "#FFC857", "#929084"),
+                     labels = c("Both", "Neither", "Pval only")) +
+  coord_cartesian(ylim = c(0, 200), xlim = c(-20, 20)) +
+  scale_x_continuous(breaks = seq(-20, 20, 4)) +
+  scale_y_continuous(breaks = seq(0, 200, 25)) +
+  ggtitle('Allo24h vs Naive') + theme_bw()
+g
+View(head(annot_results, 10))
+
+
+# PLOT B - ALLO2H VS NAIVE
+
+results_table2 = results(dds, contrast= c('Group', 'Allo2h', 'Naive'))
+summary(results_table2)
+results_tibble2 = as_tibble(results_table2, rownames='ensembl_gene_id')
+filtered_results2 = filter(results_tibble2, complete.cases(results_tibble2))
+
+ensembl108 = useEnsembl(biomart="ensembl", version=108)
+ensembl108 = useDataset("mmusculus_gene_ensembl", mart=ensembl108)
+annotation2 = getBM(attributes=c('ensembl_gene_id', 'chromosome_name',
+                                 'start_position', 'end_position',
+                                 'strand', 'gene_biotype', 'external_gene_name',
+                                 'description'),
+                    filters = 'ensembl_gene_id',
+                    values = filtered_results2$ensembl_gene_id,
+                    mart = ensembl108)
+annot_results2 = left_join(filtered_results2, annotation2)
+annot_results2 = arrange(annot_results2, padj)
+
+annot_results2 = mutate(annot_results2, logPval= -log10(padj))
+annot_results2$Significance <- 'Neither'
+annot_results2$Significance[annot_results2$padj < 0.05] <- 'Pval only'
+annot_results2$Significance[annot_results2$log2FoldChange < -1 & annot_results2$padj < 0.05] <- 'Both'
+annot_results2$Significance[annot_results2$log2FoldChange > 1 & annot_results2$padj < 0.05] <- 'Both'
+
+g2 = ggplot(annot_results2, aes(x=log2FoldChange,
+                                y=logPval, col = Significance,
+                                name = external_gene_name)) +
+  geom_vline(xintercept = c(-1, 1), col = '#5A5A5A', alpha = 0.5, linetype = 2) +
+  geom_hline(yintercept =-log10(0.05), col = '#5A5A5A', alpha =0.5, linetype = 2) +
+  geom_point(size = 1, alpha=0.3) +
+  scale_color_manual(values = c("#E5323B", "#FFC857", "#929084"),
+                     labels = c("Both", "Neither", "Pval only")) +
+  coord_cartesian(ylim = c(0, 100), xlim = c(-10, 14)) +
+  scale_x_continuous(breaks = seq(-20, 20, 2)) +
+  scale_y_continuous(breaks = seq(0, 100, 25)) +
+  ggtitle('Allo2h vs Naive') + theme_bw()
+g2
+View(head(annot_results2, 10))
+
+
+# PLOT C - ALLO24H VS ALLO2H
+
+results_table3 = results(dds, contrast= c('Group', 'Allo2h', 'Allo24h'))
+summary(results_table3)
+results_tibble3 = as_tibble(results_table3, rownames='ensembl_gene_id')
+filtered_results3 = filter(results_tibble3, complete.cases(results_tibble3))
+
+ensembl108 = useEnsembl(biomart="ensembl", version=108)
+ensembl108 = useDataset("mmusculus_gene_ensembl", mart=ensembl108)
+annotation3 = getBM(attributes=c('ensembl_gene_id', 'chromosome_name',
+                                 'start_position', 'end_position',
+                                 'strand', 'gene_biotype', 'external_gene_name',
+                                 'description'),
+                    filters = 'ensembl_gene_id',
+                    values = filtered_results3$ensembl_gene_id,
+                    mart = ensembl108)
+annot_results3 = left_join(filtered_results3, annotation3)
+annot_results3 = arrange(annot_results3, padj)
+
+annot_results3 = mutate(annot_results3, logPval= -log10(padj))
+annot_results3$Significance <- 'Neither'
+annot_results3$Significance[annot_results3$padj < 0.05] <- 'Pval only'
+annot_results3$Significance[annot_results3$log2FoldChange < -1 & annot_results3$padj < 0.05] <- 'Both'
+annot_results3$Significance[annot_results3$log2FoldChange > 1 & annot_results3$padj < 0.05] <- 'Both'
+
+g3 = ggplot(annot_results3, aes(x=log2FoldChange,
+                                y=logPval, col = Significance,
+                                name = external_gene_name)) +
+  geom_vline(xintercept = c(-1, 1), col = '#5A5A5A', alpha = 0.5, linetype = 2) +
+  geom_hline(yintercept =-log10(0.05), col = '#5A5A5A', alpha =0.5, linetype = 2) +
+  geom_point(size = 1, alpha=0.3) +
+  scale_color_manual(values = c("#E5323B", "#FFC857", "#929084"),
+                     labels = c("Both", "Neither", "Pval only")) +
+  coord_cartesian(ylim = c(0, 215), xlim = c(-10, 20)) +
+  scale_x_continuous(breaks = seq(-20, 20, 2)) +
+  scale_y_continuous(breaks = seq(0, 210, 25)) +
+  ggtitle('Allo2h vs Allo24h') + theme_bw()
+g3
+View(head(annot_results3, 10))
+
+
+# FourWay Plot
+
+vsFourWay(x = "Allo2h", y = "Allo24h", control = "Naive", lfc = 1, data = dds, d.factor = 'Group', 
+          type = c('deseq'), padj = 0.05)
+          
+
+# MA Plots
+# PLOT A - ALLO24H VS NAIVE
+
+plotMA(
+  results_table,
+  direction = c("both", "up", "down"),
+  alphaThreshold = 0.05,
+  baseMeanThreshold = NULL,
+  lfcThreshold = NULL,
+  genes = NULL,
+  pointColor = c(downregulated = AcidPlots::lightPalette[["orange"]], upregulated =
+                   AcidPlots::lightPalette[["red"]], nonsignificant =
+                   AcidPlots::lightPalette[["gray"]]),
+  pointSize = 2L,
+  pointAlpha = 0.4,
+  limits = list(x = NULL, y = NULL),
+  labels = list(title = "MA Plot of Allo24h vs Naive", subtitle = 
+                  ('Red = Upregulated, Orange = Downregulated, Grey = Nonsignificant, n = 5672, Pvalue: 0.05')))
+                  
+
+# PLOT B - ALLO2H VS NAIVE
+plotMA(
+  results_table2,
+  direction = c("both", "up", "down"),
+  alphaThreshold = 0.05,
+  baseMeanThreshold = NULL,
+  lfcThreshold = NULL,
+  genes = NULL,
+  pointColor = c(downregulated = AcidPlots::lightPalette[["orange"]], upregulated =
+                   AcidPlots::lightPalette[["red"]], nonsignificant =
+                   AcidPlots::lightPalette[["gray"]]),
+  pointSize = 2L,
+  pointAlpha = 0.4,
+  limits = list(x = NULL, y = NULL),
+  labels = list(title = "MA Plot of Allo2h vs Naive", subtitle = 
+                  ('Red = Upregulated, Orange = Downregulated, Grey = Nonsignificant, n = 5672, Pvalue: 0.05')))
+
+
+#PLOT C - ALLO2H VS ALLO24H
+plotMA(
+  results_table3,
+  direction = c("both", "up", "down"),
+  alphaThreshold = 0.05,
+  baseMeanThreshold = NULL,
+  lfcThreshold = NULL,
+  genes = NULL,
+  pointColor = c(downregulated = AcidPlots::lightPalette[["orange"]], upregulated =
+                   AcidPlots::lightPalette[["red"]], nonsignificant =
+                   AcidPlots::lightPalette[["gray"]]),
+  pointSize = 2L,
+  pointAlpha = 0.4,
+  limits = list(x = NULL, y = NULL),
+  labels = list(title = "MA Plot of Allo2h vs Allo24h", subtitle = 
+                  ('Red = Upregulated, Orange = Downregulated, Grey = Nonsignificant, n = 5672, Pvalue: 0.05')))
