@@ -78,7 +78,7 @@ pheatmap(sample_distance_matrix, color = color_scheme,
          annotation_col = heatmap_annotation,
          annotation_colors = list(group=c(Allo24h="purple", Allo2h = "#69b3a2", Naive = "black")))
 
-# Volcano plots
+# Plot Volcano plot
 # PLOT A - ALL024H VS NAIVE 
 results_table = results(dds, contrast= c('Group', 'Allo24h', 'Naive'))
 summary(results_table)
@@ -118,6 +118,11 @@ g = ggplot(annot_results, aes(x=log2FoldChange,
 g
 View(head(annot_results, 10))
 
+# INTERACTIVE VOLCANO PLOT
+install.packages('plotly')
+library('plotly')
+ggplotly(g)
+g
 
 # PLOT B - ALLO2H VS NAIVE
 
@@ -159,10 +164,15 @@ g2 = ggplot(annot_results2, aes(x=log2FoldChange,
 g2
 View(head(annot_results2, 10))
 
+# INTERACTIVE VOLCANO PLOT
+install.packages('plotly')
+library('plotly')
+ggplotly(g2)
+g2
 
 # PLOT C - ALLO24H VS ALLO2H
 
-results_table3 = results(dds, contrast= c('Group', 'Allo2h', 'Allo24h'))
+results_table3 = results(dds, contrast= c('Group', 'Allo24h', 'Allo2h'))
 summary(results_table3)
 results_tibble3 = as_tibble(results_table3, rownames='ensembl_gene_id')
 filtered_results3 = filter(results_tibble3, complete.cases(results_tibble3))
@@ -196,19 +206,23 @@ g3 = ggplot(annot_results3, aes(x=log2FoldChange,
   coord_cartesian(ylim = c(0, 215), xlim = c(-10, 20)) +
   scale_x_continuous(breaks = seq(-20, 20, 2)) +
   scale_y_continuous(breaks = seq(0, 210, 25)) +
-  ggtitle('Allo2h vs Allo24h') + theme_bw()
+  ggtitle('Allo24h vs Allo2h') + theme_bw()
 g3
 View(head(annot_results3, 10))
 
+# INTERACTIVE VOLCANO PLOT
+install.packages('plotly')
+library('plotly')
+ggplotly(g3)
+g3
 
 # FourWay Plot
 
 vsFourWay(x = "Allo2h", y = "Allo24h", control = "Naive", lfc = 1, data = dds, d.factor = 'Group', 
           type = c('deseq'), padj = 0.05)
-          
 
-# MA Plots
-# PLOT A - ALLO24H VS NAIVE
+# MA Plot
+#PLOT A - ALLO24H VS NAIVE
 
 plotMA(
   results_table,
@@ -225,7 +239,6 @@ plotMA(
   limits = list(x = NULL, y = NULL),
   labels = list(title = "MA Plot of Allo24h vs Naive", subtitle = 
                   ('Red = Upregulated, Orange = Downregulated, Grey = Nonsignificant, n = 5672, Pvalue: 0.05')))
-                  
 
 # PLOT B - ALLO2H VS NAIVE
 plotMA(
@@ -244,7 +257,6 @@ plotMA(
   labels = list(title = "MA Plot of Allo2h vs Naive", subtitle = 
                   ('Red = Upregulated, Orange = Downregulated, Grey = Nonsignificant, n = 5672, Pvalue: 0.05')))
 
-
 #PLOT C - ALLO2H VS ALLO24H
 plotMA(
   results_table3,
@@ -259,5 +271,5 @@ plotMA(
   pointSize = 2L,
   pointAlpha = 0.4,
   limits = list(x = NULL, y = NULL),
-  labels = list(title = "MA Plot of Allo2h vs Allo24h", subtitle = 
+  labels = list(title = "MA Plot of Allo24h vs Allo2h", subtitle = 
                   ('Red = Upregulated, Orange = Downregulated, Grey = Nonsignificant, n = 5672, Pvalue: 0.05')))
